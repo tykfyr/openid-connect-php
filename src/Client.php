@@ -7,24 +7,67 @@ use Firebase\JWT\Key;
 use InvalidArgumentException;
 use RuntimeException;
 
+/**
+ * OpenID Connect Client implementation
+ * 
+ * This class provides a simple way to integrate OpenID Connect authentication
+ * into PHP applications. It handles the complete authentication flow including
+ * token validation and user information retrieval.
+ */
 class Client
 {
+    /** @var string The base URL of the OpenID Connect provider */
     private string $providerUrl;
+
+    /** @var string The client ID issued by the OpenID Connect provider */
     private string $clientId;
+
+    /** @var string The client secret issued by the OpenID Connect provider */
     private string $clientSecret;
+
+    /** @var array Default scopes to request during authentication */
     private array $scopes = ['openid', 'profile', 'email'];
+
+    /** @var array Response types to request from the provider */
     private array $responseTypes = ['code'];
+
+    /** @var string|null The redirect URI registered with the provider */
     private ?string $redirectUri = null;
+
+    /** @var string|null The state parameter for CSRF protection */
     private ?string $state = null;
+
+    /** @var string|null The nonce parameter for replay protection */
     private ?string $nonce = null;
+
+    /** @var array Cached provider configuration */
     private array $providerConfig = [];
+
+    /** @var array Token response from the provider */
     private array $tokenResponse = [];
+
+    /** @var array User information retrieved from the provider */
     private array $userInfo = [];
+
+    /** @var bool Whether to verify the host during SSL handshake */
     private bool $verifyHost = true;
+
+    /** @var bool Whether to verify the peer during SSL handshake */
     private bool $verifyPeer = true;
+
+    /** @var string|null Path to SSL certificate for verification */
     private ?string $certPath = null;
+
+    /** @var string|null HTTP proxy configuration */
     private ?string $httpProxy = null;
 
+    /**
+     * Create a new OpenID Connect client instance
+     *
+     * @param string $providerUrl The base URL of the OpenID Connect provider
+     * @param string $clientId The client ID issued by the provider
+     * @param string $clientSecret The client secret issued by the provider
+     */
     public function __construct(
         string $providerUrl,
         string $clientId,
@@ -35,42 +78,86 @@ class Client
         $this->clientSecret = $clientSecret;
     }
 
+    /**
+     * Set the scopes to request during authentication
+     *
+     * @param array $scopes Array of scope strings to request
+     * @return self
+     */
     public function setScopes(array $scopes): self
     {
         $this->scopes = $scopes;
         return $this;
     }
 
+    /**
+     * Set the redirect URI for the authentication flow
+     *
+     * @param string $redirectUri The redirect URI registered with the provider
+     * @return self
+     */
     public function setRedirectUri(string $redirectUri): self
     {
         $this->redirectUri = $redirectUri;
         return $this;
     }
 
+    /**
+     * Configure SSL host verification
+     *
+     * @param bool $verify Whether to verify the host during SSL handshake
+     * @return self
+     */
     public function setVerifyHost(bool $verify): self
     {
         $this->verifyHost = $verify;
         return $this;
     }
 
+    /**
+     * Configure SSL peer verification
+     *
+     * @param bool $verify Whether to verify the peer during SSL handshake
+     * @return self
+     */
     public function setVerifyPeer(bool $verify): self
     {
         $this->verifyPeer = $verify;
         return $this;
     }
 
+    /**
+     * Set the path to the SSL certificate for verification
+     *
+     * @param string $path Path to the certificate file
+     * @return self
+     */
     public function setCertPath(string $path): self
     {
         $this->certPath = $path;
         return $this;
     }
 
+    /**
+     * Configure HTTP proxy settings
+     *
+     * @param string $proxy Proxy URL in format http://host:port
+     * @return self
+     */
     public function setHttpProxy(string $proxy): self
     {
         $this->httpProxy = $proxy;
         return $this;
     }
 
+    /**
+     * Start the OpenID Connect authentication flow
+     *
+     * This method generates state and nonce parameters, then redirects
+     * the user to the provider's authorization endpoint.
+     *
+     * @return void
+     */
     public function authenticate(): void
     {
         $this->state = bin2hex(random_bytes(16));
@@ -91,6 +178,15 @@ class Client
         exit;
     }
 
+    /**
+     * Handle the callback from the OpenID Connect provider
+     *
+     * This method processes the authorization code, exchanges it for tokens,
+     * and validates the ID token.
+     *
+     * @throws RuntimeException If the authorization code is missing or invalid
+     * @return void
+     */
     public function handleCallback(): void
     {
         if (!isset($_GET['code'])) {
@@ -119,6 +215,13 @@ class Client
         $this->validateIdToken($this->tokenResponse['id_token']);
     }
 
+    /**
+     * Request user information from the provider
+     *
+     * @param string|null $claim Specific claim to retrieve, or null for all claims
+     * @return mixed The requested claim value or all user information
+     * @throws RuntimeException If no access token is available
+     */
     public function requestUserInfo(string $claim = null)
     {
         if (empty($this->tokenResponse['access_token'])) {
@@ -139,6 +242,13 @@ class Client
         return $this->userInfo;
     }
 
+    /**
+     * Get a configuration value from the provider's discovery document
+     *
+     * @param string $key The configuration key to retrieve
+     * @return string The configuration value
+     * @throws RuntimeException If the configuration value is not found
+     */
     private function getProviderConfigValue(string $key): string
     {
         if (empty($this->providerConfig)) {
@@ -152,6 +262,15 @@ class Client
         return $this->providerConfig[$key];
     }
 
+    /**
+     * Make an HTTP request to the provider
+     *
+     * @param string $url The URL to request
+     * @param array $params POST parameters, if any
+     * @param array $headers Additional HTTP headers
+     * @return array The JSON-decoded response
+     * @throws RuntimeException If the request fails or the response is invalid
+     */
     private function request(string $url, array $params = [], array $headers = []): array
     {
         $ch = curl_init();
@@ -194,6 +313,16 @@ class Client
         return $data;
     }
 
+    /**
+     * Validate the ID token received from the provider
+     *
+     * This method verifies the token's signature, expiration, and claims
+     * including the nonce, issuer, and audience.
+     *
+     * @param string $idToken The ID token to validate
+     * @throws RuntimeException If the token is invalid
+     * @return void
+     */
     private function validateIdToken(string $idToken): void
     {
         $keys = $this->request($this->getProviderConfigValue('jwks_uri'));
